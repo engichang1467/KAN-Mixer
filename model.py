@@ -10,18 +10,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 
-# from reference import KANLinear
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class PatchEmbedding(nn.Module):
     """
-      Path embedding layer is nothing but a convolutional layer with kerneli size and stride equal to patch size.
+    Path embedding layer is nothing but a convolutional layer with kerneli size and stride equal to patch size.
     """
+
     def __init__(self, in_channels, embedding_dim, patch_size):
         super().__init__()
-        self.patch_embedding = nn.Conv2d(in_channels, embedding_dim, patch_size, patch_size)
+        self.patch_embedding = nn.Conv2d(
+            in_channels, embedding_dim, patch_size, patch_size
+        )
 
     def forward(self, x):
         return self.patch_embedding(x)
@@ -89,65 +91,28 @@ class KANLinear(nn.Module):
             torch.Tensor: B-spline bases tensor of shape (batch_size, in_features, grid_size + spline_order).
         """
 
-
         # Expand the grid tensor to match the input tensor's dimensions
         expanded_grid = self.grid.unsqueeze(0).expand(
             x.size(0), *self.grid.size()
         )  # (batch_size, in_features, grid_size + 2 * spline_order + 1)
 
         # Add an extra dimension to the input tensor for broadcasting
-        input_tensor_expanded = x  # (batch_size, in_features)
-        # input_tensor_expanded = x.unsqueeze(-1)  # (batch_size, in_features, 1)
-        # input_tensor_expanded = x.unsqueeze(-1).repeat(1, 1, expanded_grid.shape[-1])  # (batch_size, in_features, 1)
-        # input_tensor_expanded = input_tensor_expanded.repeat(1, 1, expanded_grid.shape[-1])
-        
+        input_tensor_expanded = x.unsqueeze(-1)  # (batch_size, in_features, 1)
 
         # Convert tensor into the current device type
-        # expanded_grid = expanded_grid.to(device)
-        # input_tensor_expanded = input_tensor_expanded.to(device)
+        expanded_grid = expanded_grid.to(device)
+        input_tensor_expanded = input_tensor_expanded.to(device)
 
-        print(f"expanded_grid: {expanded_grid.shape}")
-        print(f"input_tensor_expanded: {input_tensor_expanded.shape}")
-
-        
-        # Compute the B-spline bases
-        bases = torch.zeros_like(expanded_grid)
-        print(f"bases: {bases.shape}")
-        for i in range(self.grid_size + 2 * self.spline_order + 1):
-            # print(f"input_tensor_expanded: {input_tensor_expanded.shape}")
-            # print(f"expanded_grid: {expanded_grid[:, :, i - 1].shape}")
-            # print(f"expanded_grid: {expanded_grid[:, :, i].shape}")
-            # print(f"input_tensor_expanded: {input_tensor_expanded.shape}")
-            cond1 = (input_tensor_expanded >= expanded_grid[:, :, i - 1])
-            cond2 = (input_tensor_expanded < expanded_grid[:, :, i])
-            
-            # bases[:, :, i] = (input_tensor_expanded >= expanded_grid[:, :, i - 1]) & (input_tensor_expanded < expanded_grid[:, :, i])
-            bases[:, :, i] = cond1 & cond2
-
-        print(f"expanded_grid: {expanded_grid.shape}")
-        print(f"bases: {bases.shape}")
-        print("After computing the B-Spline bases")
-        # # Initialize the bases tensor with boolean values
-        # bases = (
-        #     (input_tensor_expanded >= expanded_grid[:, :, :-1])
-        #     & (input_tensor_expanded < expanded_grid[:, :, 1:])
-        # ).to(
-        #     x.dtype
-        # )  # (batch_size, in_features, grid_size + spline_order)
-
-        input_tensor_expanded = input_tensor_expanded.unsqueeze(-1)
+        # Initialize the bases tensor with boolean values
+        bases = (
+            (input_tensor_expanded >= expanded_grid[:, :, :-1])
+            & (input_tensor_expanded < expanded_grid[:, :, 1:])
+        ).to(
+            x.dtype
+        )  # (batch_size, in_features, grid_size + spline_order)
 
         # Compute the B-spline bases recursively
         for order in range(1, self.spline_order + 1):
-            input_tensor_expanded = input_tensor_expanded.repeat(1, 1, expanded_grid[:, :, : -order - 1].shape[-1])
-            print(f"input_tensor_expanded: {input_tensor_expanded.shape}")
-            print(f"expanded_grid (order): {expanded_grid[:, :, : -order - 1].shape}")
-            # bases = bases.reshape(input_tensor_expanded.shape[0], input_tensor_expanded.shape[1], input_tensor_expanded.shape[2])
-            # print(f"bases (order): {bases.shape}")
-            test = (input_tensor_expanded - expanded_grid[:, :, : -order - 1]) / (expanded_grid[:, :, order:-1] - expanded_grid[:, :, : -order - 1])
-            print(f"left_term: {test.shape}")
-            test2 = test * bases[:, :, :-1]
-
             left_term = (
                 (input_tensor_expanded - expanded_grid[:, :, : -order - 1])
                 / (expanded_grid[:, :, order:-1] - expanded_grid[:, :, : -order - 1])
@@ -204,24 +169,38 @@ class KANLinear(nn.Module):
         return coefficients.contiguous()
 
     def forward(self, x: torch.Tensor):
+        # Save the original shape
+        original_shape = x.shape
+
+        # Flatten the last two dimensions of the input
+        x = x.contiguous().view(-1, self.in_features)
 
         base_output = F.linear(self.base_activation(x), self.base_weight)
         spline_output = F.linear(
             self.b_splines(x).view(x.size(0), -1),
             self.spline_weight.view(self.out_features, -1),
         )
-        return base_output + spline_output
+
+        # Apply the linear transformation
+        output = base_output + spline_output
+
+        # Reshape the output to have the same shape as the input
+        output = output.view(*original_shape[:-1], -1)
+
+        return output
+
 
 # Kolmogorov-Arnold Networks
 class KAN(nn.Module):
     """
-      This network applies 2 consecutive fully connected layers and is used in Token Mixer and Channel Mixer modules.
+    This network applies 2 consecutive fully connected layers and is used in Token Mixer and Channel Mixer modules.
     """
-    def __init__(self, dim, intermediate_dim, dropout = 0.):
+
+    def __init__(self, dim, intermediate_dim, dropout=0.0, grid_size=5, spline_order=3):
         super().__init__()
         self.kan = nn.Sequential(
-            KANLinear(dim, intermediate_dim),
-            KANLinear(intermediate_dim, dim),
+            KANLinear(dim, intermediate_dim, grid_size, spline_order),
+            KANLinear(intermediate_dim, dim, grid_size, spline_order),
         )
 
     def forward(self, x):
@@ -230,63 +209,94 @@ class KAN(nn.Module):
 
 class Transformation1(nn.Module):
     """
-      The transformation that is used in Mixer Layer (the T) which just switches the 2nd and the 3rd dimensions and is applied before and after Token Mixing KANs
+    The transformation that is used in Mixer Layer (the T) which just switches the 2nd and the 3rd dimensions and is applied before and after Token Mixing KANs
     """
+
     def __init__(self):
         super().__init__()
-    
+
     def forward(self, x):
         return torch.permute(x, (0, 2, 1))
 
 
 class Transformation2(nn.Module):
     """
-      The transformation that is applied right after the patch embedding layer and convert it's shape from (batch_size,  embedding_dim, sqrt(num_patches), sqrt(num_patches)) to (batch_size, num_patches, embedding_dim)
+    The transformation that is applied right after the patch embedding layer and convert it's shape from (batch_size,  embedding_dim, sqrt(num_patches), sqrt(num_patches)) to (batch_size, num_patches, embedding_dim)
     """
+
     def __init__(self):
         super().__init__()
-    
+
     def forward(self, x):
         return torch.permute(x, (0, 2, 3, 1)).reshape(x.shape[0], -1, x.shape[1])
 
 
 class MixerLayer(nn.Module):
     """
-      Mixer layer which consists of Token Mixer and Channel Mixer modules in addition to skip connections.
-      intermediate_output = Token Mixer(input) + input
-      final_output = Channel Mixer(intermediate_output) + intermediate_output
+    Mixer layer which consists of Token Mixer and Channel Mixer modules in addition to skip connections.
+    intermediate_output = Token Mixer(input) + input
+    final_output = Channel Mixer(intermediate_output) + intermediate_output
     """
-    def __init__(self, embedding_dim, num_patch, token_intermediate_dim, channel_intermediate_dim, dropout=0.):
+
+    def __init__(
+        self,
+        embedding_dim,
+        num_patch,
+        token_intermediate_dim,
+        channel_intermediate_dim,
+        dropout=0.0,
+        grid_size=5,
+        spline_order=3,
+    ):
         super().__init__()
 
         self.token_mixer = nn.Sequential(
             nn.LayerNorm(embedding_dim),
             Transformation1(),
-            KAN(num_patch, token_intermediate_dim, dropout),
-            Transformation1()
+            KAN(num_patch, token_intermediate_dim, dropout, grid_size, spline_order),
+            Transformation1(),
         )
 
         self.channel_mixer = nn.Sequential(
             nn.LayerNorm(embedding_dim),
-            KAN(embedding_dim, channel_intermediate_dim, dropout),
+            KAN(
+                embedding_dim,
+                channel_intermediate_dim,
+                dropout,
+                grid_size,
+                spline_order,
+            ),
         )
 
     def forward(self, x):
-        x = x + self.token_mixer(x)     # TOken mixer and skip connection
-        x = x + self.channel_mixer(x)   # Channel mixer and skip connection
+        x = x + self.token_mixer(x)  # Token mixer and skip connection
+        x = x + self.channel_mixer(x)  # Channel mixer and skip connection
 
         return x
 
 
 class KANMixer(nn.Module):
     """
-      KAN-Mixer Architecture:
-      1-Applies 'Patch Embedding' at first.
-      2-Applies 'Mixer Layer' N times in a row.
-      3-Performs 'Global Average Pooling'
-      4-The Learnt features are then passed to the classifier
+    KAN-Mixer Architecture:
+    1-Applies 'Patch Embedding' at first.
+    2-Applies 'Mixer Layer' N times in a row.
+    3-Performs 'Global Average Pooling'
+    4-The Learnt features are then passed to the classifier
     """
-    def __init__(self, in_channels, embedding_dim, num_classes, patch_size, image_size, depth, token_intermediate_dim, channel_intermediate_dim):
+
+    def __init__(
+        self,
+        in_channels,
+        embedding_dim,
+        num_classes,
+        patch_size,
+        image_size,
+        depth,
+        token_intermediate_dim,
+        channel_intermediate_dim,
+        grid_size=5,
+        spline_order=3,
+    ):
         super().__init__()
 
         self.num_patch = (image_size // patch_size) ** 2
@@ -295,16 +305,28 @@ class KANMixer(nn.Module):
             Transformation2(),
         )
 
-        self.mixers = nn.ModuleList([MixerLayer(embedding_dim, self.num_patch, token_intermediate_dim, channel_intermediate_dim) for _ in range(depth)])
+        self.mixers = nn.ModuleList(
+            [
+                MixerLayer(
+                    embedding_dim,
+                    self.num_patch,
+                    token_intermediate_dim,
+                    channel_intermediate_dim,
+                    grid_size,
+                    spline_order,
+                )
+                for _ in range(depth)
+            ]
+        )
         self.layer_norm = nn.LayerNorm(embedding_dim)
         self.classifier = nn.Sequential(nn.Linear(embedding_dim, num_classes))
 
     def forward(self, x):
 
-        x = self.patch_embedding(x)   # Patch Embedding layer
-        for mixer in self.mixers:     # Applying Mixer Layer N times
+        x = self.patch_embedding(x)  # Patch Embedding layer
+        for mixer in self.mixers:  # Applying Mixer Layer N times
             x = mixer(x)
         x = self.layer_norm(x)
-        x = x.mean(dim=1)             # Global Average Pooling
+        x = x.mean(dim=1)  # Global Average Pooling
 
         return self.classifier(x)

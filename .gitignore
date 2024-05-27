@@ -5,6 +5,7 @@ mnist
 data
 test.txt
 test.ipynb
+references.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
