@@ -11,3 +11,14 @@ Replacing the Multi-Layer Perceptron (MLP) with the Kolmogorov-Arnold Networks (
 ### Source Code
 - [(GitHub) engichange1467 - MLP-Mixer Reimplementation](https://github.com/engichang1467/MLP-Mixer-Reimplementation)
 - [(GitHub) engichange1467 - Simple KAN](https://github.com/engichang1467/Simple-KAN)
+
+If you find my work helpful, pleause use the following citation.
+
+```
+@misc{
+    engichang1467,
+    title={Unleashing the Power of KAN: The KAN-Mixer Breakthrough},
+    author={Michael Chang},
+    year={2024},
+}
+```
