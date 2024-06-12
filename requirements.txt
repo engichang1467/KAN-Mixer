@@ -3,3 +3,4 @@ torchvision
 tqdm
 matplotlib
 numpy
+ruff
