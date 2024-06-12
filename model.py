@@ -168,19 +168,9 @@ class KANLinear(nn.Module):
             self.base_activation(x).to(device), self.base_weight.to(device)
         )
 
-        # val_b_spline = self.b_splines(x).view(x.size(0), -1).to(device)
-        # val_spline_weight = self.spline_weight.view(self.out_features, -1).to(device)
-
-        # val_b_spline = val_b_spline.to(device)
-        # val_spline_weight = val_spline_weight.to(device)
-
         spline_output = F.linear(
             self.b_splines(x).view(x.size(0), -1).to(device),
             self.spline_weight.view(self.out_features, -1).to(device),
-            # self.b_splines(x).view(x.size(0), -1),
-            # self.spline_weight.view(self.out_features, -1),
-            # val_b_spline,
-            # val_spline_weight,
         )
 
         # Apply the linear transformation
@@ -274,9 +264,6 @@ class MixerLayer(nn.Module):
         val_token_mixer = self.token_mixer(x).to(device)
         val_channel_mixer = self.channel_mixer(x).to(device)
         x = x.to(device)
-
-        # x = x + self.token_mixer(x)  # Token mixer and skip connection
-        # x = x + self.channel_mixer(x)  # Channel mixer and skip connection
 
         x = x + val_token_mixer  # Token mixer and skip connection
         x = x + val_channel_mixer  # Channel mixer and skip connection
