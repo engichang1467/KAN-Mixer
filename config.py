@@ -8,12 +8,12 @@ def get_config():
         "num_classes": 10,
         "learning_rate": 4e-3,
         "batch_size": 128,
-        "num_epochs": 1,  # 25
+        "num_epochs": 5,  # 25
         "channel_dim": 128,
         "token_dim": 64,
         "depth": 4,
         "model_folder": "weights",
-        "model_basename": "mixer-model_",
+        "model_basename": "kmixer-model_",
     }
 
 
