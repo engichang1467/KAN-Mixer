@@ -6,6 +6,8 @@ data
 test.txt
 test.ipynb
 references.py
+.ruff_cache
+weights
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

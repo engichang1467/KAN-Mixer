@@ -1,13 +1,6 @@
 import torch
-import torchvision
 import torch.nn.functional as F
-from torchvision import transforms
-from torch import optim
 from torch import nn
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import numpy as np
 import math
 
 
@@ -92,24 +85,20 @@ class KANLinear(nn.Module):
         """
 
         # Expand the grid tensor to match the input tensor's dimensions
-        expanded_grid = self.grid.unsqueeze(0).expand(
-            x.size(0), *self.grid.size()
+        expanded_grid = (
+            self.grid.unsqueeze(0).expand(x.size(0), *self.grid.size()).to(device)
         )  # (batch_size, in_features, grid_size + 2 * spline_order + 1)
 
         # Add an extra dimension to the input tensor for broadcasting
-        input_tensor_expanded = x.unsqueeze(-1)  # (batch_size, in_features, 1)
-
-        # Convert tensor into the current device type
-        expanded_grid = expanded_grid.to(device)
-        input_tensor_expanded = input_tensor_expanded.to(device)
+        input_tensor_expanded = x.unsqueeze(-1).to(
+            device
+        )  # (batch_size, in_features, 1)
 
         # Initialize the bases tensor with boolean values
         bases = (
             (input_tensor_expanded >= expanded_grid[:, :, :-1])
             & (input_tensor_expanded < expanded_grid[:, :, 1:])
-        ).to(
-            x.dtype
-        )  # (batch_size, in_features, grid_size + spline_order)
+        ).to(x.dtype)  # (batch_size, in_features, grid_size + spline_order)
 
         # Compute the B-spline bases recursively
         for order in range(1, self.spline_order + 1):
@@ -175,10 +164,13 @@ class KANLinear(nn.Module):
         # Flatten the last two dimensions of the input
         x = x.contiguous().view(-1, self.in_features)
 
-        base_output = F.linear(self.base_activation(x), self.base_weight)
+        base_output = F.linear(
+            self.base_activation(x).to(device), self.base_weight.to(device)
+        )
+
         spline_output = F.linear(
-            self.b_splines(x).view(x.size(0), -1),
-            self.spline_weight.view(self.out_features, -1),
+            self.b_splines(x).view(x.size(0), -1).to(device),
+            self.spline_weight.view(self.out_features, -1).to(device),
         )
 
         # Apply the linear transformation
@@ -269,8 +261,12 @@ class MixerLayer(nn.Module):
         )
 
     def forward(self, x):
-        x = x + self.token_mixer(x)  # Token mixer and skip connection
-        x = x + self.channel_mixer(x)  # Channel mixer and skip connection
+        val_token_mixer = self.token_mixer(x).to(device)
+        val_channel_mixer = self.channel_mixer(x).to(device)
+        x = x.to(device)
+
+        x = x + val_token_mixer  # Token mixer and skip connection
+        x = x + val_channel_mixer  # Channel mixer and skip connection
 
         return x
 
@@ -322,7 +318,6 @@ class KANMixer(nn.Module):
         self.classifier = nn.Sequential(nn.Linear(embedding_dim, num_classes))
 
     def forward(self, x):
-
         x = self.patch_embedding(x)  # Patch Embedding layer
         for mixer in self.mixers:  # Applying Mixer Layer N times
             x = mixer(x)
